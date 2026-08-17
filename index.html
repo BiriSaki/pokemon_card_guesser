@@ -1,0 +1,598 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>CARD ID — Pokémon Card Viewfinder</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg: #12171b;
+    --bg-vignette: #0b0e11;
+    --panel: #1b2227;
+    --panel-alt: #212a30;
+    --line: #2c363c;
+    --text: #eef1f0;
+    --text-muted: #7c8a94;
+    --amber: #f2a341;
+    --amber-dim: #7a5a2c;
+    --teal: #4fd1c5;
+    --red: #e2574c;
+    --font-display: 'Space Grotesk', sans-serif;
+    --font-body: 'Inter', sans-serif;
+    --font-mono: 'JetBrains Mono', monospace;
+  }
+
+  *{ box-sizing: border-box; }
+
+  body{
+    margin:0;
+    min-height:100vh;
+    background:
+      radial-gradient(ellipse at 50% 0%, #1a2126 0%, var(--bg) 45%, var(--bg-vignette) 100%);
+    color:var(--text);
+    font-family:var(--font-body);
+    display:flex;
+    align-items:flex-start;
+    justify-content:center;
+    padding:32px 16px 64px;
+  }
+
+  .app{ width:100%; max-width:460px; }
+
+  /* ---------- Header ---------- */
+  header{
+    display:flex;
+    align-items:baseline;
+    justify-content:space-between;
+    margin-bottom:18px;
+    padding-bottom:14px;
+    border-bottom:1px solid var(--line);
+  }
+  header .brand{
+    font-family:var(--font-display);
+    font-weight:700;
+    font-size:20px;
+    letter-spacing:0.5px;
+  }
+  header .brand span{ color:var(--amber); }
+  .stats{
+    display:flex;
+    gap:16px;
+    font-family:var(--font-mono);
+    font-size:12px;
+    color:var(--text-muted);
+  }
+  .stats b{ color:var(--text); font-weight:700; }
+
+  /* ---------- Viewfinder ---------- */
+  .viewfinder-wrap{
+    position:relative;
+    width:100%;
+    aspect-ratio: 63 / 88;
+    background: #05070a;
+    border-radius:6px;
+    overflow:hidden;
+    box-shadow: inset 0 0 0 1px #000, 0 20px 40px -20px rgba(0,0,0,0.7);
+  }
+  .crop{
+    position:absolute; inset:0;
+    background-repeat:no-repeat;
+    background-color:#0d1113;
+    transition: background-size 0.5s ease, background-position 0.5s ease, filter 0.4s ease;
+    filter: saturate(0.92) brightness(0.97);
+  }
+  .crop.loading{ filter: blur(4px) saturate(0); }
+
+  /* scanline / grain overlay for camera feel */
+  .viewfinder-wrap::after{
+    content:"";
+    position:absolute; inset:0;
+    pointer-events:none;
+    background: repeating-linear-gradient( to bottom, rgba(0,0,0,0.08) 0px, rgba(0,0,0,0.08) 1px, transparent 1px, transparent 3px);
+    mix-blend-mode:overlay;
+    opacity:0.5;
+  }
+
+  /* corner brackets */
+  .bracket{
+    position:absolute;
+    width:26px; height:26px;
+    border-color: var(--amber);
+    border-style:solid;
+    border-width:0;
+    transition: border-color 0.3s ease, filter 0.3s ease;
+    filter: drop-shadow(0 0 3px rgba(242,163,65,0.35));
+    z-index:3;
+  }
+  .bracket.tl{ top:10px; left:10px; border-top-width:2.5px; border-left-width:2.5px; }
+  .bracket.tr{ top:10px; right:10px; border-top-width:2.5px; border-right-width:2.5px; }
+  .bracket.bl{ bottom:10px; left:10px; border-bottom-width:2.5px; border-left-width:2.5px; }
+  .bracket.br{ bottom:10px; right:10px; border-bottom-width:2.5px; border-right-width:2.5px; }
+  .viewfinder-wrap.locked .bracket{ border-color: var(--teal); filter: drop-shadow(0 0 6px rgba(79,209,197,0.6)); }
+  .viewfinder-wrap.locked .bracket{ animation: snap 0.35s ease; }
+  @keyframes snap{
+    0%{ width:40px; height:40px; opacity:0.4; }
+    100%{ width:26px; height:26px; opacity:1; }
+  }
+
+  /* HUD readout */
+  .hud{
+    position:absolute; left:10px; right:10px; bottom:10px;
+    z-index:3;
+    display:flex; justify-content:space-between; align-items:flex-end;
+    pointer-events:none;
+  }
+  .hud-left{
+    font-family:var(--font-mono);
+    font-size:10.5px;
+    color: var(--amber);
+    text-shadow: 0 0 6px rgba(242,163,65,0.5);
+    letter-spacing:0.5px;
+    line-height:1.5;
+  }
+  .viewfinder-wrap.locked .hud-left{ color: var(--teal); text-shadow: 0 0 6px rgba(79,209,197,0.5); }
+  .rec{
+    font-family:var(--font-mono);
+    font-size:10.5px;
+    color: var(--red);
+    display:flex; align-items:center; gap:5px;
+  }
+  .rec .dot{
+    width:6px; height:6px; border-radius:50%; background:var(--red);
+    animation: blink 1.4s infinite;
+    box-shadow:0 0 6px rgba(226,87,76,0.8);
+  }
+  .viewfinder-wrap.locked .rec .dot{ background:var(--teal); box-shadow:0 0 6px rgba(79,209,197,0.8); animation:none; }
+  .viewfinder-wrap.locked .rec span.label{ color:var(--teal); }
+  @keyframes blink{ 0%,100%{opacity:1;} 50%{opacity:0.25;} }
+
+  .top-readout{
+    position:absolute; top:10px; left:0; right:0;
+    text-align:center;
+    font-family:var(--font-mono);
+    font-size:10px;
+    color: rgba(238,241,240,0.55);
+    z-index:3;
+    letter-spacing:1px;
+  }
+
+  .spinner-msg{
+    position:absolute; inset:0;
+    display:flex; align-items:center; justify-content:center;
+    font-family:var(--font-mono);
+    font-size:12px;
+    color: var(--text-muted);
+    z-index:4;
+    text-align:center;
+    padding:20px;
+  }
+
+  /* ---------- Controls ---------- */
+  .panel{
+    margin-top:18px;
+    background: var(--panel);
+    border:1px solid var(--line);
+    border-radius:8px;
+    padding:16px;
+  }
+  .field{ margin-bottom:12px; }
+  .field label{
+    display:block;
+    font-family:var(--font-mono);
+    font-size:10.5px;
+    color:var(--text-muted);
+    letter-spacing:0.5px;
+    margin-bottom:6px;
+  }
+  .field .row{ display:flex; align-items:center; gap:8px; }
+  .field input{
+    flex:1;
+    background: var(--panel-alt);
+    border:1px solid var(--line);
+    color:var(--text);
+    font-family:var(--font-body);
+    font-size:14px;
+    padding:10px 12px;
+    border-radius:5px;
+    outline:none;
+    transition: border-color 0.2s ease, box-shadow 0.2s ease;
+  }
+  .field input:focus{ border-color:var(--amber); box-shadow:0 0 0 3px rgba(242,163,65,0.15); }
+  .field input.correct{ border-color:var(--teal); background: rgba(79,209,197,0.08); }
+  .field input.wrong{ border-color:var(--red); background: rgba(226,87,76,0.08); }
+  .badge{
+    font-family:var(--font-mono);
+    font-size:13px;
+    width:18px; text-align:center;
+  }
+  .badge.correct{ color:var(--teal); }
+  .badge.wrong{ color:var(--red); }
+
+  .actions{ display:flex; gap:8px; margin-top:16px; flex-wrap:wrap; }
+  button{
+    font-family:var(--font-mono);
+    font-size:12px;
+    letter-spacing:0.5px;
+    border-radius:5px;
+    padding:11px 14px;
+    cursor:pointer;
+    border:1px solid transparent;
+    transition: transform 0.08s ease, opacity 0.2s ease, background 0.2s ease;
+  }
+  button:active{ transform: scale(0.97); }
+  button:disabled{ opacity:0.35; cursor:not-allowed; }
+  .btn-primary{
+    flex:1 1 140px;
+    background: var(--amber);
+    color:#1a1305;
+    font-weight:700;
+    border:none;
+  }
+  .btn-primary:hover:not(:disabled){ background:#ffb552; }
+  .btn-secondary{
+    flex:1 1 120px;
+    background: transparent;
+    color:var(--text-muted);
+    border:1px solid var(--line);
+  }
+  .btn-secondary:hover:not(:disabled){ color:var(--text); border-color:#4a5860; }
+  .btn-ghost{
+    flex:1 1 100%;
+    background:transparent;
+    color: var(--text-muted);
+    border:1px dashed var(--line);
+    font-size:11px;
+  }
+  .btn-ghost:hover{ color:var(--red); border-color:var(--red); }
+
+  /* ---------- Feedback / reveal ---------- */
+  .feedback{
+    margin-top:14px;
+    font-family:var(--font-mono);
+    font-size:12.5px;
+    line-height:1.6;
+    min-height:18px;
+  }
+  .feedback.correct{ color:var(--teal); }
+  .feedback.wrong{ color:var(--red); }
+  .feedback.neutral{ color:var(--text-muted); }
+
+  .reveal-card{
+    display:none;
+    margin-top:14px;
+    padding-top:14px;
+    border-top:1px dashed var(--line);
+  }
+  .reveal-card.show{ display:block; }
+  .reveal-card .name{
+    font-family:var(--font-display);
+    font-weight:700;
+    font-size:17px;
+  }
+  .reveal-card .meta{
+    font-family:var(--font-mono);
+    font-size:11px;
+    color:var(--text-muted);
+    margin-top:4px;
+  }
+
+  footer{
+    margin-top:22px;
+    text-align:center;
+    font-family:var(--font-mono);
+    font-size:10px;
+    color: #4a555c;
+  }
+  footer a{ color:#5c6a72; }
+
+  @media (max-width:420px){
+    .btn-primary, .btn-secondary{ flex:1 1 100%; }
+  }
+</style>
+</head>
+<body>
+
+<div class="app">
+
+  <header>
+    <div class="brand">CARD <span>ID//</span></div>
+    <div class="stats">
+      <div>SCORE <b id="scoreVal">0</b></div>
+      <div>STREAK <b id="streakVal">0</b></div>
+    </div>
+  </header>
+
+  <div class="viewfinder-wrap" id="vfWrap">
+    <div class="top-readout" id="topReadout">SUBJECT: UNIDENTIFIED</div>
+    <div class="crop loading" id="crop"></div>
+    <div class="bracket tl"></div>
+    <div class="bracket tr"></div>
+    <div class="bracket bl"></div>
+    <div class="bracket br"></div>
+    <div class="hud">
+      <div class="hud-left" id="hudLeft">ZOOM 6.5×<br>FOCUS: SEARCHING</div>
+      <div class="rec"><span class="dot"></span><span class="label">REC</span></div>
+    </div>
+    <div class="spinner-msg" id="spinnerMsg">Loading a card…</div>
+  </div>
+
+  <div class="panel">
+    <div class="field">
+      <label for="nameInput">POKÉMON NAME</label>
+      <div class="row">
+        <input type="text" id="nameInput" autocomplete="off" placeholder="e.g. Charizard" />
+        <div class="badge" id="nameBadge"></div>
+      </div>
+    </div>
+    <div class="field">
+      <label for="setInput">SET</label>
+      <div class="row">
+        <input type="text" id="setInput" autocomplete="off" placeholder="e.g. Base Set" />
+        <div class="badge" id="setBadge"></div>
+      </div>
+    </div>
+
+    <div class="actions">
+      <button class="btn-primary" id="submitBtn">Submit guess</button>
+      <button class="btn-secondary" id="revealBtn">Zoom out (−15 pts)</button>
+    </div>
+    <button class="btn-ghost" id="giveUpBtn" style="margin-top:8px;">Give up on this card</button>
+
+    <div class="feedback neutral" id="feedback">Take your best guess from the crop above.</div>
+
+    <div class="reveal-card" id="revealCard">
+      <div class="name" id="revealName"></div>
+      <div class="meta" id="revealMeta"></div>
+      <button class="btn-primary" id="nextBtn" style="margin-top:12px; width:100%;">Next card →</button>
+    </div>
+  </div>
+
+  <footer>Card data &amp; images via the Pokémon TCG API · not affiliated with Nintendo / The Pokémon Company</footer>
+</div>
+
+<script>
+(function(){
+  // Requests go to our own /api/cards proxy (see functions/api/cards.js),
+  // which attaches the Pokémon TCG API key server-side. The key never
+  // ships to the browser.
+  const API_BASE = "/api/cards";
+  const ZOOM_STEPS = [
+    { size: 620, label: "6.2×", focus: "SEARCHING" },
+    { size: 380, label: "3.8×", focus: "NARROWING" },
+    { size: 220, label: "2.2×", focus: "CLOSE" },
+    { size: 100, label: "1.0×", focus: "FULL FRAME" }
+  ];
+  const REVEAL_PENALTY = 15;
+  const BASE_SCORE = 100;
+
+  let score = 0, streak = 0;
+  let currentCard = null;
+  let revealLevel = 0;
+  let focusPoint = { x: 50, y: 50 };
+  let filteredTotal = null;
+  let solved = false;
+  let roundLocked = false; // true once solved or given up
+
+  const el = id => document.getElementById(id);
+  const vfWrap = el('vfWrap');
+  const cropEl = el('crop');
+  const hudLeft = el('hudLeft');
+  const topReadout = el('topReadout');
+  const spinnerMsg = el('spinnerMsg');
+  const nameInput = el('nameInput');
+  const setInput = el('setInput');
+  const nameBadge = el('nameBadge');
+  const setBadge = el('setBadge');
+  const submitBtn = el('submitBtn');
+  const revealBtn = el('revealBtn');
+  const giveUpBtn = el('giveUpBtn');
+  const feedback = el('feedback');
+  const revealCard = el('revealCard');
+  const revealName = el('revealName');
+  const revealMeta = el('revealMeta');
+  const nextBtn = el('nextBtn');
+  const scoreVal = el('scoreVal');
+  const streakVal = el('streakVal');
+
+  function normalize(str){
+    return (str || "").toLowerCase().replace(/[^a-z0-9]/g, "");
+  }
+
+  function fuzzyMatch(guess, actual){
+    const g = normalize(guess);
+    const a = normalize(actual);
+    if (!g) return false;
+    if (g === a) return true;
+    if (a.includes(g) && g.length >= 3) return true;
+    if (g.includes(a) && a.length >= 3) return true;
+    return false;
+  }
+
+  async function getFilteredTotal(){
+    if (filteredTotal) return filteredTotal;
+    const res = await fetch(`${API_BASE}?q=supertype:pokemon&pageSize=1`);
+    const data = await res.json();
+    filteredTotal = data.totalCount || 500;
+    return filteredTotal;
+  }
+
+  function randInt(min, max){
+    return Math.floor(Math.random() * (max - min + 1)) + min;
+  }
+
+  async function fetchRandomCard(attempt = 0){
+    if (attempt > 6) throw new Error("Could not find a usable card after several tries.");
+    const total = await getFilteredTotal();
+    const page = randInt(1, Math.max(1, total));
+    const res = await fetch(`${API_BASE}?q=supertype:pokemon&page=${page}&pageSize=1`);
+    const data = await res.json();
+    const card = data.data && data.data[0];
+    if (!card || !card.images || !(card.images.large || card.images.small)) {
+      return fetchRandomCard(attempt + 1);
+    }
+    return card;
+  }
+
+  function setLoading(isLoading, msg){
+    spinnerMsg.style.display = isLoading ? 'flex' : 'none';
+    spinnerMsg.textContent = msg || 'Loading a card…';
+    cropEl.classList.toggle('loading', isLoading);
+  }
+
+  function preloadImage(url){
+    return new Promise((resolve, reject) => {
+      const img = new Image();
+      img.onload = () => resolve(url);
+      img.onerror = () => reject(new Error('image failed'));
+      img.src = url;
+    });
+  }
+
+  function applyZoom(){
+    const step = ZOOM_STEPS[revealLevel];
+    cropEl.style.backgroundSize = step.size + '%';
+    const pos = step.size === 100 ? '50% 50%' : `${focusPoint.x}% ${focusPoint.y}%`;
+    cropEl.style.backgroundPosition = pos;
+    hudLeft.innerHTML = `ZOOM ${step.label}<br>FOCUS: ${roundLocked ? (solved ? 'LOCKED' : 'REVEALED') : step.focus}`;
+    topReadout.textContent = roundLocked ? 'SUBJECT: IDENTIFIED' : 'SUBJECT: UNIDENTIFIED';
+    revealBtn.disabled = revealLevel >= ZOOM_STEPS.length - 1 || roundLocked;
+  }
+
+  function resetFieldStates(){
+    [nameInput, setInput].forEach(i => i.classList.remove('correct', 'wrong'));
+    nameBadge.textContent = ''; nameBadge.className = 'badge';
+    setBadge.textContent = ''; setBadge.className = 'badge';
+  }
+
+  async function startRound(){
+    resetFieldStates();
+    nameInput.value = '';
+    setInput.value = '';
+    feedback.className = 'feedback neutral';
+    feedback.textContent = 'Take your best guess from the crop above.';
+    revealCard.classList.remove('show');
+    vfWrap.classList.remove('locked');
+    solved = false;
+    roundLocked = false;
+    revealLevel = 0;
+    focusPoint = { x: randInt(20, 80), y: randInt(20, 80) };
+    submitBtn.disabled = true;
+    nameInput.disabled = true;
+    setInput.disabled = true;
+    revealBtn.disabled = true;
+    giveUpBtn.disabled = true;
+
+    setLoading(true, 'Scanning for a card…');
+    try{
+      const card = await fetchRandomCard();
+      const imgUrl = card.images.large || card.images.small;
+      await preloadImage(imgUrl);
+      currentCard = card;
+      cropEl.style.backgroundImage = `url("${imgUrl}")`;
+      applyZoom();
+      setLoading(false);
+      submitBtn.disabled = false;
+      nameInput.disabled = false;
+      setInput.disabled = false;
+      revealBtn.disabled = false;
+      giveUpBtn.disabled = false;
+      nameInput.focus();
+    }catch(err){
+      setLoading(true, 'Signal lost — could not load a card. Retrying…');
+      setTimeout(startRound, 1200);
+    }
+  }
+
+  function markField(input, badge, isCorrect){
+    input.classList.remove('correct', 'wrong');
+    input.classList.add(isCorrect ? 'correct' : 'wrong');
+    badge.className = 'badge ' + (isCorrect ? 'correct' : 'wrong');
+    badge.textContent = isCorrect ? '✓' : '✗';
+  }
+
+  function lockRound(wasSolved){
+    roundLocked = true;
+    solved = wasSolved;
+    revealLevel = ZOOM_STEPS.length - 1;
+    applyZoom();
+    vfWrap.classList.toggle('locked', wasSolved);
+    revealCard.classList.add('show');
+    revealName.textContent = currentCard.name;
+    const setName = currentCard.set ? currentCard.set.name : 'Unknown set';
+    const rarity = currentCard.rarity ? ` · ${currentCard.rarity}` : '';
+    revealMeta.textContent = `${setName}${rarity}`;
+    submitBtn.disabled = true;
+    revealBtn.disabled = true;
+    nameInput.disabled = true;
+    setInput.disabled = true;
+    giveUpBtn.disabled = true;
+  }
+
+  function handleSubmit(){
+    if (!currentCard || roundLocked) return;
+    const nameOk = fuzzyMatch(nameInput.value, currentCard.name);
+    const setName = currentCard.set ? currentCard.set.name : '';
+    const setOk = fuzzyMatch(setInput.value, setName);
+    markField(nameInput, nameBadge, nameOk);
+    markField(setInput, setBadge, setOk);
+
+    if (nameOk && setOk){
+      const roundScore = Math.max(25, BASE_SCORE - revealLevel * REVEAL_PENALTY);
+      score += roundScore;
+      streak += 1;
+      scoreVal.textContent = score;
+      streakVal.textContent = streak;
+      feedback.className = 'feedback correct';
+      feedback.textContent = `Focus locked. +${roundScore} pts.`;
+      lockRound(true);
+    } else if (nameOk && !setOk){
+      feedback.className = 'feedback wrong';
+      feedback.textContent = 'Pokémon confirmed — set is off. Try again or zoom out.';
+    } else if (!nameOk && setOk){
+      feedback.className = 'feedback wrong';
+      feedback.textContent = 'Set confirmed — Pokémon is off. Try again or zoom out.';
+    } else {
+      feedback.className = 'feedback wrong';
+      feedback.textContent = 'No match yet. Try again or zoom out for a wider view.';
+    }
+  }
+
+  function handleReveal(){
+    if (roundLocked) return;
+    if (revealLevel < ZOOM_STEPS.length - 1){
+      revealLevel += 1;
+      applyZoom();
+      feedback.className = 'feedback neutral';
+      feedback.textContent = revealLevel === ZOOM_STEPS.length - 1
+        ? 'Full frame now visible — last chance before giving up.'
+        : 'Widened the shot. Take another look.';
+    }
+  }
+
+  function handleGiveUp(){
+    if (!currentCard || roundLocked) return;
+    streak = 0;
+    streakVal.textContent = streak;
+    feedback.className = 'feedback neutral';
+    feedback.textContent = 'Revealed. Streak reset — on to the next one.';
+    lockRound(false);
+  }
+
+  submitBtn.addEventListener('click', handleSubmit);
+  revealBtn.addEventListener('click', handleReveal);
+  giveUpBtn.addEventListener('click', handleGiveUp);
+  nextBtn.addEventListener('click', startRound);
+  [nameInput, setInput].forEach(inp => {
+    inp.addEventListener('keydown', e => {
+      if (e.key === 'Enter') handleSubmit();
+    });
+  });
+
+  startRound();
+})();
+</script>
+
+</body>
+</html>
