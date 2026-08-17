@@ -10,6 +10,7 @@ sent to the browser.
 `functions/` folder — it's static files only. To deploy the function, connect
 a GitHub repo instead (no CLI needed), as described below.
 
+
 ## Deploy via GitHub (recommended, no CLI)
 
 1. Create a new repo on github.com (Public or Private, doesn't matter).
