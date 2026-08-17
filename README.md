@@ -1,55 +1,67 @@
 # Card ID — deploy with your API key hidden
 
-This is a Cloudflare Pages project. The site itself is a static `index.html`;
-the `functions/api/cards.js` file is a small serverless function that holds
-your Pokémon TCG API key as a secret and proxies requests to
-`api.pokemontcg.io` on the page's behalf. The key never appears in anything
-sent to the browser.
+This project runs as a Cloudflare **Worker with static assets** (Cloudflare's
+current recommended setup — it folds together what used to be separate
+"Pages" and "Workers" products). One Worker script handles everything:
 
-**Note:** Cloudflare Pages' drag-and-drop "Direct Upload" does not support the
-`functions/` folder — it's static files only. To deploy the function, connect
-a GitHub repo instead (no CLI needed), as described below.
+- Requests to `/api/cards` are handled by `worker/index.js`, which attaches
+  your Pokémon TCG API key (from an environment variable) and forwards the
+  request to `api.pokemontcg.io`. The key never reaches the browser.
+- Every other request falls through to the static files in `public/`
+  (just `index.html`, the game itself).
 
+## Project structure
 
-## Deploy via GitHub (recommended, no CLI)
+```
+wrangler.jsonc     — ties the worker script and static assets together
+worker/index.js    — the server-side proxy logic (/api/cards)
+public/index.html  — the game page (static, unchanged by deploys)
+```
 
-1. Create a new repo on github.com (Public or Private, doesn't matter).
-2. On the repo page, use **Add file → Upload files** and drag in `index.html`,
-   `README.md`, and the `functions` folder — keep them at the repo root, not
-   nested in a subfolder. Commit.
-3. In the Cloudflare dashboard: **Workers & Pages → Create → Pages → Connect to Git**,
+## Deploy via GitHub (no CLI)
+
+1. Push this whole folder to a GitHub repo, keeping `wrangler.jsonc`,
+   `worker/`, and `public/` at the repo root (not nested in a subfolder).
+2. In the Cloudflare dashboard: **Workers & Pages → Create → Workers → Connect to Git**,
    authorize GitHub, and pick this repo.
-4. Build settings: Framework preset **None**, Build command **blank**,
-   Build output directory **/** (repo root). Save and deploy.
-5. After the first deploy: **Settings → Environment variables**, add
-   `POKEMON_TCG_API_KEY` with your key as the value (mark it Secret/Encrypt if offered).
-6. Redeploy (Deployments tab → retrigger, or just push any small commit) so the
-   function picks up the new environment variable.
-7. Visit your `*.pages.dev` URL. Check the browser's Network tab — requests
-   should go to `/api/cards`, never directly to `api.pokemontcg.io` with your key.
+3. Cloudflare should detect `wrangler.jsonc` automatically and build a Worker
+   with an `ASSETS` binding — not a static-assets-only deployment. If you
+   previously created this project as assets-only and hit
+   "Variables cannot be added to a Worker that only has static assets,"
+   delete that project and recreate it after pushing `wrangler.jsonc`, so
+   Cloudflare picks it up from the start.
+4. After the first deploy: **Settings → Environment variables (or Variables and Secrets)**,
+   add `POKEMON_TCG_API_KEY` with your key as the value (mark it Secret/Encrypt if offered).
+5. Redeploy (Deployments tab → retrigger, or push any small commit) so the
+   Worker picks up the new environment variable.
+6. If the project page says **"No URLs enabled"**: go to
+   **Settings → Domains & Routes** and enable the **workers.dev subdomain**
+   (or add your own custom domain if you have one on Cloudflare). Your site
+   will then be reachable at something like
+   `https://card-id.<your-subdomain>.workers.dev`.
+7. Visit that URL. Check the browser's Network tab — requests should go to
+   `/api/cards`, never directly to `api.pokemontcg.io` with your key attached.
 
 ## Alternative: Wrangler CLI
 
 ```bash
 npm install -g wrangler
-wrangler pages project create card-id
-wrangler pages secret put POKEMON_TCG_API_KEY --project-name=card-id
-wrangler pages deploy . --project-name=card-id
+wrangler login
+wrangler secret put POKEMON_TCG_API_KEY
+wrangler deploy
 ```
 
 ## Local testing
 
 ```bash
 npm install -g wrangler
-wrangler pages dev . --binding POKEMON_TCG_API_KEY=your_key_here
+wrangler dev --var POKEMON_TCG_API_KEY:your_key_here
 ```
-
-This runs the site and the function locally at `http://localhost:8788`.
 
 ## How the key stays hidden
 
-The browser only ever calls your own `/api/cards` path. Cloudflare runs
-`functions/api/cards.js` on its servers, attaches `X-Api-Key` from the
+The browser only ever calls your own `/api/cards` path. `worker/index.js`
+runs on Cloudflare's servers, attaches `X-Api-Key` from the
 `POKEMON_TCG_API_KEY` environment variable, and forwards the request to
 `api.pokemontcg.io`. View-source or the browser's network tab will only ever
 show requests to `/api/cards` — the real key is never transmitted to the
