@@ -430,7 +430,8 @@
   // is then a plain ID comparison — no fuzzy text logic needed.
   let setsLoaded = false;
 
-  async function loadSetsList(){
+  async function loadSetsList(attempt = 1){
+    const MAX_ATTEMPTS = 3;
     try {
       let sets = [];
       let page = 1;
@@ -446,9 +447,13 @@
       populateSetDropdown(sets);
       setsLoaded = true;
     } catch (err){
-      console.error('Could not load set list', err);
-      // Game still works without the dropdown populated — set guessing
-      // just won't be available for bonus points this session.
+      console.error('Could not load set list (attempt ' + attempt + ')', err);
+      if (attempt < MAX_ATTEMPTS){
+        setTimeout(() => loadSetsList(attempt + 1), attempt * 800);
+      }
+      // After all attempts, the game still works without the dropdown
+      // populated — set guessing just won't be available for bonus points
+      // this session.
     }
   }
 

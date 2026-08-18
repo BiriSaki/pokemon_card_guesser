@@ -45,15 +45,57 @@ async function proxyToPokemonTCG(request, env, resource, cacheControl) {
     headers["X-Api-Key"] = env.POKEMON_TCG_API_KEY;
   }
 
-  const upstreamRes = await fetch(upstream.toString(), { headers });
-  const body = await upstreamRes.text();
+  // The upstream API has become noticeably flaky (frequent 5xx/502s) since
+  // the team's focus shifted to their commercial successor. Retry a couple
+  // times with backoff before giving up — most failures are transient.
+  const MAX_ATTEMPTS = 3;
+  let lastRes = null;
+  let lastError = null;
 
-  return new Response(body, {
-    status: upstreamRes.status,
-    headers: {
-      "Content-Type": "application/json",
-      "Cache-Control": cacheControl,
-      "X-Debug-Key-Present": String(!!env.POKEMON_TCG_API_KEY),
-    },
-  });
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    try {
+      const res = await fetch(upstream.toString(), { headers });
+      if (res.ok) {
+        const body = await res.text();
+        return new Response(body, {
+          status: res.status,
+          headers: {
+            "Content-Type": "application/json",
+            "Cache-Control": cacheControl,
+            "X-Debug-Key-Present": String(!!env.POKEMON_TCG_API_KEY),
+            "X-Upstream-Attempts": String(attempt),
+          },
+        });
+      }
+      lastRes = res;
+      // Only retry on server-side errors — a 4xx won't fix itself.
+      if (res.status < 500) break;
+    } catch (err) {
+      lastError = err;
+    }
+    if (attempt < MAX_ATTEMPTS) {
+      await new Promise(r => setTimeout(r, attempt * 400));
+    }
+  }
+
+  if (lastRes) {
+    const body = await lastRes.text();
+    return new Response(body, {
+      status: lastRes.status,
+      headers: {
+        "Content-Type": "application/json",
+        "Cache-Control": "no-store",
+        "X-Debug-Key-Present": String(!!env.POKEMON_TCG_API_KEY),
+        "X-Upstream-Attempts": String(MAX_ATTEMPTS),
+      },
+    });
+  }
+
+  return new Response(
+    JSON.stringify({ error: "upstream_unreachable", message: String(lastError) }),
+    {
+      status: 502,
+      headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },
+    }
+  );
 }
