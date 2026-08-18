@@ -187,7 +187,7 @@
     margin-bottom:6px;
   }
   .field .row{ display:flex; align-items:center; gap:8px; }
-  .field input{
+  .field input, .field select{
     flex:1;
     background: var(--panel-alt);
     border:1px solid var(--line);
@@ -199,9 +199,20 @@
     outline:none;
     transition: border-color 0.2s ease, box-shadow 0.2s ease;
   }
-  .field input:focus{ border-color:var(--amber); box-shadow:0 0 0 3px rgba(242,163,65,0.15); }
-  .field input.correct{ border-color:var(--teal); background: rgba(79,209,197,0.08); }
-  .field input.wrong{ border-color:var(--red); background: rgba(226,87,76,0.08); }
+  .field select{
+    color-scheme: dark;
+    appearance: none;
+    -webkit-appearance: none;
+    background-image: linear-gradient(45deg, transparent 50%, var(--text-muted) 50%), linear-gradient(135deg, var(--text-muted) 50%, transparent 50%);
+    background-position: right 16px center, right 10px center;
+    background-size: 6px 6px, 6px 6px;
+    background-repeat: no-repeat;
+    padding-right: 32px;
+  }
+  .field select:disabled{ opacity:0.6; }
+  .field input:focus, .field select:focus{ border-color:var(--amber); box-shadow:0 0 0 3px rgba(242,163,65,0.15); }
+  .field input.correct, .field select.correct{ border-color:var(--teal); background-color: rgba(79,209,197,0.08); }
+  .field input.wrong, .field select.wrong{ border-color:var(--red); background-color: rgba(226,87,76,0.08); }
   .badge{
     font-family:var(--font-mono);
     font-size:13px;
@@ -327,9 +338,11 @@
       </div>
     </div>
     <div class="field">
-      <label for="setInput">SET</label>
+      <label for="setInput">SET <span style="color:var(--text-muted); font-weight:400;">(optional — bonus points)</span></label>
       <div class="row">
-        <input type="text" id="setInput" autocomplete="off" placeholder="e.g. Base Set" />
+        <select id="setInput">
+          <option value="">— optional: pick a set for bonus —</option>
+        </select>
         <div class="badge" id="setBadge"></div>
       </div>
     </div>
@@ -340,7 +353,7 @@
     </div>
     <button class="btn-ghost" id="giveUpBtn" style="margin-top:8px;">Give up on this card</button>
 
-    <div class="feedback neutral" id="feedback">Take your best guess from the crop above.</div>
+    <div class="feedback neutral" id="feedback">Guess the Pokémon to score. Add the set too for +40 bonus points.</div>
 
     <div class="reveal-card" id="revealCard">
       <div class="name" id="revealName"></div>
@@ -358,6 +371,7 @@
   // which attaches the Pokémon TCG API key server-side. The key never
   // ships to the browser.
   const API_BASE = "/api/cards";
+  const SETS_API_BASE = "/api/sets";
   const ZOOM_STEPS = [
     { size: 620, label: "6.2×", focus: "SEARCHING" },
     { size: 380, label: "3.8×", focus: "NARROWING" },
@@ -366,6 +380,7 @@
   ];
   const REVEAL_PENALTY = 15;
   const BASE_SCORE = 100;
+  const SET_BONUS = 40;
 
   let score = 0, streak = 0;
   let currentCard = null;
@@ -408,6 +423,62 @@
     if (a.includes(g) && g.length >= 3) return true;
     if (g.includes(a) && a.length >= 3) return true;
     return false;
+  }
+
+  // The set dropdown is populated once at startup from /api/sets, sorted
+  // chronologically and grouped by series (e.g. "Sword & Shield"). Matching
+  // is then a plain ID comparison — no fuzzy text logic needed.
+  let setsLoaded = false;
+
+  async function loadSetsList(){
+    try {
+      let sets = [];
+      let page = 1;
+      while (true){
+        const res = await fetch(`${SETS_API_BASE}?page=${page}&pageSize=250`);
+        if (!res.ok) throw new Error('sets fetch failed: ' + res.status);
+        const data = await res.json();
+        const batch = data.data || [];
+        sets = sets.concat(batch);
+        if (batch.length < 250 || (data.totalCount && sets.length >= data.totalCount)) break;
+        page += 1;
+      }
+      populateSetDropdown(sets);
+      setsLoaded = true;
+    } catch (err){
+      console.error('Could not load set list', err);
+      // Game still works without the dropdown populated — set guessing
+      // just won't be available for bonus points this session.
+    }
+  }
+
+  function populateSetDropdown(sets){
+    const sorted = [...sets].sort((a, b) => (a.releaseDate || '').localeCompare(b.releaseDate || ''));
+    const groups = new Map();
+    for (const s of sorted){
+      const key = s.series || 'Other';
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key).push(s);
+    }
+
+    setInput.innerHTML = '';
+    const placeholder = document.createElement('option');
+    placeholder.value = '';
+    placeholder.textContent = '— optional: pick a set for bonus —';
+    setInput.appendChild(placeholder);
+
+    for (const [series, list] of groups){
+      const og = document.createElement('optgroup');
+      og.label = series;
+      for (const s of list){
+        const opt = document.createElement('option');
+        opt.value = s.id;
+        const year = (s.releaseDate || '').slice(0, 4);
+        opt.textContent = year ? `${s.name} (${year})` : s.name;
+        og.appendChild(opt);
+      }
+      setInput.appendChild(og);
+    }
   }
 
   async function getFilteredTotal(){
@@ -471,13 +542,16 @@
     nameInput.value = '';
     setInput.value = '';
     feedback.className = 'feedback neutral';
-    feedback.textContent = 'Take your best guess from the crop above.';
+    feedback.textContent = 'Guess the Pokémon to score. Add the set too for +40 bonus points.';
     revealCard.classList.remove('show');
     vfWrap.classList.remove('locked');
     solved = false;
     roundLocked = false;
     revealLevel = 0;
-    focusPoint = { x: randInt(20, 80), y: randInt(20, 80) };
+    // Keep crops within the artwork region (roughly between the name bar and
+    // the attack/text box) so guesses land on illustration, not plain border
+    // or body text.
+    focusPoint = { x: randInt(28, 72), y: randInt(14, 50) };
     submitBtn.disabled = true;
     nameInput.disabled = true;
     setInput.disabled = true;
@@ -533,26 +607,35 @@
   function handleSubmit(){
     if (!currentCard || roundLocked) return;
     const nameOk = fuzzyMatch(nameInput.value, currentCard.name);
-    const setName = currentCard.set ? currentCard.set.name : '';
-    const setOk = fuzzyMatch(setInput.value, setName);
-    markField(nameInput, nameBadge, nameOk);
-    markField(setInput, setBadge, setOk);
+    const setGuessProvided = setInput.value.length > 0;
+    const setOk = setGuessProvided && currentCard.set && setInput.value === currentCard.set.id;
 
-    if (nameOk && setOk){
-      const roundScore = Math.max(25, BASE_SCORE - revealLevel * REVEAL_PENALTY);
+    markField(nameInput, nameBadge, nameOk);
+    if (setGuessProvided){
+      markField(setInput, setBadge, setOk);
+    } else {
+      setInput.classList.remove('correct', 'wrong');
+      setBadge.className = 'badge';
+      setBadge.textContent = '';
+    }
+
+    if (nameOk){
+      const baseScore = Math.max(25, BASE_SCORE - revealLevel * REVEAL_PENALTY);
+      const bonus = setOk ? SET_BONUS : 0;
+      const roundScore = baseScore + bonus;
       score += roundScore;
       streak += 1;
       scoreVal.textContent = score;
       streakVal.textContent = streak;
       feedback.className = 'feedback correct';
-      feedback.textContent = `Focus locked. +${roundScore} pts.`;
+      if (setOk){
+        feedback.textContent = `Focus locked. +${roundScore} pts (includes +${bonus} set bonus).`;
+      } else if (setGuessProvided){
+        feedback.textContent = `Focus locked. +${roundScore} pts. Set guess was off — no bonus this round.`;
+      } else {
+        feedback.textContent = `Focus locked. +${roundScore} pts. Tip: guess the set too for +${SET_BONUS} bonus points.`;
+      }
       lockRound(true);
-    } else if (nameOk && !setOk){
-      feedback.className = 'feedback wrong';
-      feedback.textContent = 'Pokémon confirmed — set is off. Try again or zoom out.';
-    } else if (!nameOk && setOk){
-      feedback.className = 'feedback wrong';
-      feedback.textContent = 'Set confirmed — Pokémon is off. Try again or zoom out.';
     } else {
       feedback.className = 'feedback wrong';
       feedback.textContent = 'No match yet. Try again or zoom out for a wider view.';
@@ -590,6 +673,7 @@
     });
   });
 
+  loadSetsList();
   startRound();
 })();
 </script>

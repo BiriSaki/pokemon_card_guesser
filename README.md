@@ -10,7 +10,6 @@ current recommended setup — it folds together what used to be separate
 - Every other request falls through to the static files in `public/`
   (just `index.html`, the game itself).
 
-
 ## Project structure
 
 ```
